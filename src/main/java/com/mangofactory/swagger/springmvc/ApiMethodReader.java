@@ -3,12 +3,16 @@ package com.mangofactory.swagger.springmvc;
 import java.util.Arrays;
 import java.util.List;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 import lombok.Getter;
 import lombok.val;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.commons.lang.StringUtils;
 import org.springframework.core.MethodParameter;
+import org.springframework.ui.ModelMap;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -87,6 +91,11 @@ public class ApiMethodReader {
 	private void documentParameters() {
 		for (MethodParameter methodParameter : handlerMethod.getMethodParameters())
 		{
+		    if(methodParameter.getParameterType() == ModelMap.class 
+		            || methodParameter.getParameterType() == HttpServletResponse.class
+		            || methodParameter.getParameterType() == HttpServletRequest.class) {
+		        continue;
+		    }
 			ApiParam apiParam = methodParameter.getParameterAnnotation(ApiParam.class);
 			if (apiParam == null)
 			{

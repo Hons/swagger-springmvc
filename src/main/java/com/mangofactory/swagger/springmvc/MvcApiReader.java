@@ -89,6 +89,10 @@ public class MvcApiReader {
 			if (resource.isInternalResource())
 				continue;
 			
+			if(resource.getControllerUri().contains("oauth") && !resource.getControllerClass().getName().contains("brandwatch")) {
+			    continue;
+			} 
+			
 			addApiListingIfMissing(resource);
 			
 			ControllerDocumentation apiDocumentation = getApiDocumentation(resource);
@@ -133,7 +137,10 @@ public class MvcApiReader {
 		for (RequestMethod requestMethod : methods)
 		{
 			DocumentationOperation operation = methodDoc.getOperation(requestMethod);
-			endPoint.addOperation(operation);
+			if(operation.getSummary() == null 
+			        || (operation.getSummary() != null && !operation.getSummary().equals("##HIDDEN##")) ) {
+                endPoint.addOperation(operation);
+            }
 		}
 	}
 
