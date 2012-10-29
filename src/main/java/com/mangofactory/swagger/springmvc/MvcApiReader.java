@@ -35,8 +35,8 @@ public class MvcApiReader {
 	@Getter
 	private Documentation resourceListing;
 	
-	private final Map<Class<?>,DocumentationEndPoint> resourceListCache = Maps.newHashMap();
-	private final Map<Class<?>,ControllerDocumentation> apiCache = Maps.newHashMap();
+	private final Map<String,DocumentationEndPoint> resourceListCache = Maps.newHashMap();
+	private final Map<String,ControllerDocumentation> apiCache = Maps.newHashMap();
     
 	private static final List<RequestMethod> allRequestMethods = 
 			Arrays.asList( RequestMethod.GET, RequestMethod.DELETE, RequestMethod.POST, RequestMethod.PUT );
@@ -107,13 +107,14 @@ public class MvcApiReader {
 	}
 
 	private ControllerDocumentation getApiDocumentation(MvcApiResource resource) {
-		if (!apiCache.containsKey(resource.getControllerClass()))
+	    String apiCacheKey = resource.getControllerUri();
+		if (!apiCache.containsKey(apiCacheKey))
 		{
 			ControllerDocumentation emptyApiDocumentation = resource.createEmptyApiDocumentation();
 			if (emptyApiDocumentation != null)
-				apiCache.put(resource.getControllerClass(),emptyApiDocumentation);
+				apiCache.put(apiCacheKey,emptyApiDocumentation);
 		}
-		return apiCache.get(resource.getControllerClass());
+		return apiCache.get(apiCacheKey);
 	}
 
 	private void appendOperationsToEndpoint(
