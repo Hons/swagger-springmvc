@@ -2,6 +2,7 @@ package com.mangofactory.swagger.springmvc;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -66,13 +67,13 @@ public class MvcApiReader {
 
 	private void addApiListingIfMissing(
 			MvcApiResource resource) {
-		if (resourceListCache.containsKey(resource.getControllerClass()))
+		if (resourceListCache.containsKey(resource.getControllerUri()))
 			return;
 		
 		DocumentationEndPoint endpoint = resource.describeAsEndpoint();
 		if (endpoint != null)
 		{
-			resourceListCache.put(resource.getControllerClass(),endpoint);
+			resourceListCache.put(resource.getControllerUri(),endpoint);
 			log.debug("Added resource listing: {}",resource.toString());
 			resourceListing.addApi(endpoint);
 		}
