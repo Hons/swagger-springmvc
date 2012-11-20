@@ -1,5 +1,8 @@
 package com.mangofactory.swagger.springmvc;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -11,6 +14,10 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.beans.factory.BeanFactoryUtils;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.method.HandlerMethod;
@@ -21,9 +28,15 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import com.google.common.collect.Maps;
 import com.mangofactory.swagger.ControllerDocumentation;
 import com.mangofactory.swagger.SwaggerConfiguration;
+import com.wordnik.swagger.annotations.Api;
+import com.wordnik.swagger.annotations.ApiParamImplicit;
+import com.wordnik.swagger.annotations.ApiProperty;
 import com.wordnik.swagger.core.Documentation;
+import com.wordnik.swagger.core.DocumentationAllowableListValues;
+import com.wordnik.swagger.core.DocumentationAllowableValues;
 import com.wordnik.swagger.core.DocumentationEndPoint;
 import com.wordnik.swagger.core.DocumentationOperation;
+import com.wordnik.swagger.core.DocumentationSchema;
 
 @Slf4j
 public class MvcApiReader {
@@ -36,6 +49,8 @@ public class MvcApiReader {
 	@Getter
 	private Documentation resourceListing;
 	
+	private HashMap<String,DocumentationSchema> modelItems = new HashMap<String, DocumentationSchema>();
+	
 	private final Map<String,DocumentationEndPoint> resourceListCache = Maps.newHashMap();
 	private final Map<String,ControllerDocumentation> apiCache = Maps.newHashMap();
     
@@ -47,11 +62,14 @@ public class MvcApiReader {
 		this.context = context;
 		config = swaggerConfiguration;
 		handlerMappingBeans = BeanFactoryUtils.beansOfTypeIncludingAncestors(this.context, HandlerMapping.class, true, false);
+		buildModelListings();
 		buildMappingDocuments();
 	}
 	
 	private void buildMappingDocuments() {
 		resourceListing = config.newDocumentation();
+        
+        resourceListing.setModels(modelItems);
 		
 		log.debug("Discovered {} candidates for documentation",handlerMappingBeans.size());
 		for (HandlerMapping handlerMapping : handlerMappingBeans.values())
@@ -97,6 +115,7 @@ public class MvcApiReader {
 			addApiListingIfMissing(resource);
 			
 			ControllerDocumentation apiDocumentation = getApiDocumentation(resource);
+			apiDocumentation.setModels(modelItems);
 
 			for (String requestUri : mappingInfo.getPatternsCondition().getPatterns())
 			{
@@ -157,4 +176,107 @@ public class MvcApiReader {
 		log.error("Could not find a matching resource for api with name '" + apiName + "'");
 		return null;
 	}
+	
+	/*
+	 * Build a listing for all API resources which are not controllers.
+	 * 
+	 * This listing is inserted into the model entry of each API resource.
+	 */
+	private void buildModelListings() {
+	    
+        Class<?> clazz = null;
+        
+	    ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(true);
+	    
+	    scanner.addIncludeFilter(new AnnotationTypeFilter(Api.class));
+	    scanner.addExcludeFilter(new AnnotationTypeFilter(Controller.class));
+
+	    /*
+	     *  BW specific for efficiency, could be wided to the whole environment.
+	     * Or read a property from the configuration
+	     * (Might even be able to get hold of the base scan package from spring).
+	     */
+	    for (BeanDefinition bd : scanner.findCandidateComponents("com.brandwatch.webapp")) {
+    	    try {
+                clazz = Class.forName(bd.getBeanClassName());
+            } catch (ClassNotFoundException e) {
+                log.debug("Class not found",e);
+            }
+    	    
+    	    if(clazz != null) {
+    	        DocumentationSchema modelDoc = buildModelItemListing(clazz);
+    	        if(modelDoc != null) {
+    	            modelItems.put(modelDoc.getId(), modelDoc);
+    	        }
+    	    }
+	    }
+	}
+
+	/*
+	 * Build a model entry for a class annotated with the @API
+	 * annotation.
+	 */
+	
+	private DocumentationSchema buildModelItemListing(Class<?> clazz) {
+
+        Api apiAnno = clazz.getAnnotation(Api.class);
+        ApiProperty prop = null;
+        
+        if(apiAnno != null) {
+            
+            DocumentationSchema modelDoc = new DocumentationSchema();
+            modelDoc.setId(clazz.getSimpleName());
+            modelDoc.setName(apiAnno.value());
+            modelDoc.setDescription(apiAnno.description());
+            
+            Map<String,DocumentationSchema> properties = new HashMap<String, DocumentationSchema>();
+            
+            for(Method m : clazz.getMethods()) {
+                prop = m.getAnnotation(ApiProperty.class);
+                if(prop != null) {
+                    DocumentationSchema propSchema = buildPropertiesListings(prop, m);
+                    
+                    properties.put(propSchema.getId(), propSchema);
+                }
+            }
+            
+            modelDoc.setProperties(properties);
+            
+            return modelDoc;
+        }
+        return null;
+	}
+	
+	/*
+	 * Build a listing for a method/property pair 
+	 */
+    private DocumentationSchema buildPropertiesListings(ApiProperty prop,Method m) {
+        DocumentationSchema propSchema = new DocumentationSchema();
+        
+        if(m.getReturnType() == List.class){
+            // This horrible piece of code is due to java making it difficult (impossible?!)
+            // to access a class reference for the generic type of the return type.
+            propSchema.setType("list<" + m.getGenericReturnType().toString().replaceFirst(".*?<", "").replaceAll(".*\\.", ""));
+        } else {
+            propSchema.setType(m.getReturnType().getSimpleName().toLowerCase());
+        }
+        propSchema.setDescription(prop.value());
+        String name = m.getName().replaceFirst("get", "");
+        name = Character.toLowerCase(name.charAt(0)) + (name.length() > 1 ? name.substring(1) : "");
+        propSchema.setName(name);
+        propSchema.setId(name);
+        if(prop.allowableValues() != null && !prop.allowableValues().equals("")) {
+            List<String> vals = Arrays.asList(prop.allowableValues().split(","));
+            DocumentationAllowableValues v = new DocumentationAllowableListValues(vals);
+            propSchema.setAllowableValues(v);
+        }
+        if(prop.notes().contains("required")) {
+            propSchema.setRequired(true);
+        } else {
+            propSchema.setRequired(false);
+        }
+        
+        return propSchema;
+    }
+	
 }
